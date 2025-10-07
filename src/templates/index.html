@@ -47,9 +47,11 @@
 
         // Function to update the rates display
         function updateRates() {
+            console.log('Fetching updated rates...');
             fetch('/api/rates')
                 .then(response => response.json())
                 .then(data => {
+                    console.log('Received new rate data:', data);
                     // Update current rate
                     if (data.current) {
                         document.getElementById('current-price').textContent =
@@ -59,15 +61,26 @@
                     }
 
                     // Update chart
-                    const labels = data.latest.map(rate =>
-                        new Date(rate.valid_from).toLocaleTimeString());
+                    const timeLabels = data.latest.map(rate => {
+                        const date = new Date(rate.valid_from);
+                        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    });
+                    const dateLabels = data.latest.map(rate => {
+                        const date = new Date(rate.valid_from);
+                        return date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+                    });
                     const values = data.latest.map(rate => rate.value_inc_vat);
 
+                    // Destroy existing chart if it exists
+                    if (window.rateChart) {
+                        window.rateChart.destroy();
+                    }
+
                     const ctx = document.getElementById('ratesChart').getContext('2d');
-                    new Chart(ctx, {
+                    window.rateChart = new Chart(ctx, {
                         type: 'line',
                         data: {
-                            labels: labels,
+                            labels: timeLabels,
                             datasets: [{
                                 label: 'Rate (p/kWh)',
                                 data: values,
@@ -90,8 +103,33 @@
                                     title: {
                                         display: true,
                                         text: 'Time'
+                                    },
+                                    ticks: {
+                                        callback: function (value, index) {
+                                            return timeLabels[index];
+                                        }
+                                    }
+                                },
+                                x2: {
+                                    type: 'category',
+                                    labels: dateLabels,
+                                    position: 'top',
+                                    ticks: {
+                                        callback: function (value, index) {
+                                            // Only show date when it changes
+                                            if (index === 0 || dateLabels[index] !== dateLabels[index - 1]) {
+                                                return dateLabels[index];
+                                            }
+                                            return '';
+                                        }
+                                    },
+                                    grid: {
+                                        drawOnChartArea: false
                                     }
                                 }
+                            },
+                            animation: {
+                                duration: 0 // Disable animation for smoother updates
                             }
                         }
                     });
@@ -99,6 +137,7 @@
                 .catch(error => {
                     console.error('Error fetching rates:', error);
                 });
+            console.log('Update cycle completed');
         }
 
         // Update rates immediately and then every 5 minutes
