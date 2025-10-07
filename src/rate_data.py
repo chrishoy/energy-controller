@@ -31,6 +31,7 @@ class RateData:
     latest: List[Rate]
     current: Optional[Rate]
     as_at: datetime  # Localized datetime
+    data_read_at: Optional[datetime] = None  # When the data was last fetched from Octopus API
 
 
 # --- Custom JSON Encoder for Dataclasses and Datetime ---

@@ -24,6 +24,8 @@ def get_rates():
         current_rate = rate_data.current
         return jsonify(
             {
+                "as_at": rate_data.as_at.isoformat(),
+                "data_read_at": rate_data.data_read_at.isoformat(),
                 "current": {
                     "value_exc_vat": (
                         current_rate.value_exc_vat if current_rate else None
@@ -47,7 +49,6 @@ def get_rates():
                     }
                     for rate in rate_data.latest
                 ],
-                "as_at": rate_data.as_at.isoformat(),
             }
         )
     except Exception as e:
