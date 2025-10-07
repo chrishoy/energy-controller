@@ -15,10 +15,10 @@ logger = logging.getLogger(__name__)
 def get_current_rate(latest_prices: List[Rate]) -> tuple[datetime, Optional[Rate]]:
     """
     Determines the current rate from a list of rates based on the current time.
-    
+
     Args:
         latest_prices: List of Rate objects sorted by valid_from time
-        
+
     Returns:
         Tuple of (current datetime with timezone, current rate or None if not found)
     """
@@ -39,37 +39,39 @@ def get_cached_rates() -> Optional[RateData]:
     try:
         with open("latest_prices.json", "r") as f:
             cached_data = json.loads(f.read())
-            
+
         # Check if cache is still valid (less than 30 minutes old)
         cached_time = datetime.fromisoformat(cached_data["as_at"])
         age = datetime.now(LOCAL_TZ) - cached_time
         if age < timedelta(minutes=30):
-            logger.info(f"Using cached data from {age.total_seconds() / 60:.1f} minutes ago")
+            logger.info(
+                f"Using cached data from {age.total_seconds() / 60:.1f} minutes ago"
+            )
             # Reconstruct Rate objects from cached JSON
             latest_prices = [
                 Rate(
                     value_exc_vat=rate["value_exc_vat"],
                     value_inc_vat=rate["value_inc_vat"],
                     valid_from=datetime.fromisoformat(rate["valid_from"]),
-                    valid_to=datetime.fromisoformat(rate["valid_to"])
+                    valid_to=datetime.fromisoformat(rate["valid_to"]),
                 )
                 for rate in cached_data["latest"]
             ]
-            
+
             # Find current rate based on current time
             as_at_dt, current_rate = get_current_rate(latest_prices)
-            
+
             data_read_at = (
                 datetime.fromisoformat(cached_data["data_read_at"])
                 if "data_read_at" in cached_data
                 else None
             )
-            
+
             return RateData(
                 latest=latest_prices,
                 current=current_rate,
                 as_at=as_at_dt,
-                data_read_at=data_read_at
+                data_read_at=data_read_at,
             )
     except (FileNotFoundError, json.JSONDecodeError, KeyError, ValueError):
         return None
@@ -152,7 +154,7 @@ def get_octopus_rates() -> RateData:
         latest=latest_prices,
         current=current_price,
         as_at=as_at_dt,
-        data_read_at=as_at_dt
+        data_read_at=as_at_dt,
     )
     price_data_json = rate_data_to_json(price_data)
     with open("latest_prices.json", "w") as f:
