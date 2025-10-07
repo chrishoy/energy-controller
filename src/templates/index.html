@@ -70,10 +70,6 @@
                         const date = new Date(rate.valid_from);
                         return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                     });
-                    const dateLabels = data.latest.map(rate => {
-                        const date = new Date(rate.valid_from);
-                        return date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-                    });
                     const values = data.latest.map(rate => rate.value_inc_vat);
 
                     // Destroy existing chart if it exists
@@ -90,7 +86,10 @@
                                 label: 'Rate (p/kWh)',
                                 data: values,
                                 borderColor: 'rgb(75, 192, 192)',
-                                tension: 0.1
+                                stepped: 'before',  // This creates the step effect
+                                pointRadius: 1,     // Small points at the corners
+                                pointHoverRadius: 5,
+                                fill: false
                             }]
                         },
                         options: {
@@ -117,19 +116,22 @@
                                 },
                                 x2: {
                                     type: 'category',
-                                    labels: dateLabels,
                                     position: 'top',
+                                    grid: {
+                                        drawOnChartArea: false
+                                    },
                                     ticks: {
                                         callback: function (value, index) {
-                                            // Only show date when it changes
-                                            if (index === 0 || dateLabels[index] !== dateLabels[index - 1]) {
-                                                return dateLabels[index];
+                                            // Show date label only at midnight or first data point
+                                            const currentDate = new Date(data.latest[index].valid_from);
+                                            if (index === 0 ||
+                                                (index > 0 &&
+                                                    new Date(data.latest[index - 1].valid_from).getDate() !== currentDate.getDate())) {
+                                                return currentDate.toLocaleDateString([],
+                                                    { weekday: 'short', month: 'short', day: 'numeric' });
                                             }
                                             return '';
                                         }
-                                    },
-                                    grid: {
-                                        drawOnChartArea: false
                                     }
                                 }
                             },
