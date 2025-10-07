@@ -67,6 +67,8 @@ def get_octopus_rates() -> RateData:
         )
         latest_prices.append(price_item)
 
+    latest_prices.sort(key=lambda r: r.valid_from)
+
     # 4. Determine 'current' Price
     current_price: Optional[Rate] = None
     for price in latest_prices:
