@@ -31,9 +31,10 @@
 <body>
     <h1>Energy Rates</h1>
     <div class="current-rate">
-        <h2>Current Rate</h2>
-        <p>Price: <span id="current-price">Loading...</span> p/kWh</p>
-        <p>Valid until: <span id="valid-until">Loading...</span></p>
+        <p>Current Price: <span id="current-price">Loading...</span> p/kWh</p>
+        <p>As At: <span id="as-at">Loading...</span></p>
+        <p>Valid Until: <span id="valid-until">Loading...</span></p>
+        <p>Rates Read: <span id="rates-updated">Loading...</span></p>
     </div>
     <div class="chart-container">
         <canvas id="ratesChart"></canvas>
@@ -56,8 +57,12 @@
                     if (data.current) {
                         document.getElementById('current-price').textContent =
                             data.current.value_inc_vat.toFixed(2);
+                        document.getElementById('as-at').textContent =
+                            formatDate(data.as_at);
                         document.getElementById('valid-until').textContent =
                             formatDate(data.current.valid_to);
+                        document.getElementById('rates-updated').textContent =
+                            formatDate(data.data_read_at);
                     }
 
                     // Update chart
