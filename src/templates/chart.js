@@ -166,9 +166,8 @@ function updateChart(rateData, heatingData) {
                             borderWidth: 2,
                             label: {
                                 display: true,
-                                content: 'Time: ' + new Date(rateData.as_at).toLocaleTimeString([],
-                                    { hour: '2-digit', minute: '2-digit' }) +
-                                    (rateData.current ? ' Price: ' + rateData.current.value_inc_vat.toFixed(2) + 'p/kWh' : ''),
+                                content: 'Current Time: ' + new Date(rateData.as_at).toLocaleTimeString([],
+                                    { hour: '2-digit', minute: '2-digit' }),
                                 position: 'top'
                             }
                         },
