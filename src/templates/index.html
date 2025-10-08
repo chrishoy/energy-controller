@@ -29,6 +29,8 @@
         .chart-container {
             margin-top: 20px;
             height: 400px;
+            width: 100%;
+            position: relative;
         }
     </style>
 </head>
@@ -40,6 +42,12 @@
         <p>Valid Until: <span id="valid-until">Loading...</span></p>
         <p>Rates Read: <span id="rates-updated">Loading...</span></p>
     </div>
+
+    <div class="heating-schedule"
+        style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin-bottom: 20px;">
+        <h3>Optimized Heating Schedule</h3>
+        <div id="heating-summary">Loading heating schedule...</div>
+    </div>
     <div class="chart-container">
         <canvas id="ratesChart"></canvas>
     </div>
@@ -50,38 +58,108 @@
             return new Date(dateString).toLocaleString();
         }
 
+        // Function to generate heating schedule annotations
+        function generateHeatingAnnotations(heatingData, rateData) {
+            const annotations = {};
+
+            if (!heatingData.transitions || !rateData.latest) {
+                return annotations;
+            }
+
+            heatingData.transitions.forEach((transition, index) => {
+                const transitionTime = new Date(transition.time);
+                const transitionTimeMs = transitionTime.getTime();
+
+                // Find the index in rateData.latest that corresponds to this transition
+                let rateIndex = rateData.latest.findIndex(rate => {
+                    const rateTime = new Date(rate.valid_from).getTime();
+                    return rateTime >= transitionTimeMs;
+                });
+
+                if (rateIndex === -1) rateIndex = rateData.latest.length - 1;
+
+                const annotationKey = `heating_${index}`;
+                annotations[annotationKey] = {
+                    type: 'line',
+                    scaleID: 'x',
+                    value: rateIndex,
+                    borderColor: transition.on ? '#28a745' : '#dc3545',
+                    borderWidth: 3,
+                    borderDash: transition.on ? [] : [5, 5],
+                    label: {
+                        display: true,
+                        content: (transition.on ? 'HEATING ON' : 'HEATING OFF') +
+                            ' (' + transition.price.toFixed(2) + 'p)',
+                        position: 'end',
+                        backgroundColor: transition.on ? '#28a745' : '#dc3545',
+                        color: 'white',
+                        font: {
+                            size: 10,
+                            weight: 'bold'
+                        }
+                    }
+                };
+            });
+
+            return annotations;
+        }
+
         // Function to update the rates display
         function updateRates() {
             console.log('Fetching updated rates...');
-            fetch('/api/rates')
-                .then(response => response.json())
-                .then(data => {
-                    console.log('Received new rate data:', data);
+            Promise.all([
+                fetch('/api/rates').then(response => response.json()),
+                fetch('/api/heating-schedule').then(response => response.json())
+            ])
+                .then(([rateData, heatingData]) => {
+                    console.log('Received new rate data:', rateData);
+                    console.log('Received heating schedule:', heatingData);
                     // Update current rate
-                    if (data.current) {
+                    if (rateData.current) {
                         document.getElementById('current-price').textContent =
-                            data.current.value_inc_vat.toFixed(2);
+                            rateData.current.value_inc_vat.toFixed(2);
                         document.getElementById('as-at').textContent =
-                            formatDate(data.as_at);
+                            formatDate(rateData.as_at);
                         document.getElementById('valid-until').textContent =
-                            formatDate(data.current.valid_to);
+                            formatDate(rateData.current.valid_to);
                         document.getElementById('rates-updated').textContent =
-                            formatDate(data.data_read_at);
+                            formatDate(rateData.data_read_at);
+                    }
+
+                    // Update heating schedule summary
+                    if (heatingData.summary) {
+                        const summary = heatingData.summary;
+                        document.getElementById('heating-summary').innerHTML = `
+                            <p><strong>Total Cost:</strong> £${summary.total_cost.toFixed(3)}</p>
+                            <p><strong>Heating Hours:</strong> ${summary.on_hours.toFixed(1)} hours</p>
+                            <p><strong>Average Price When On:</strong> ${summary.average_on_price ? summary.average_on_price.toFixed(2) : 'N/A'} p/kWh</p>
+                            <p><strong>Comfort Coverage:</strong> ${summary.warm_comfort_slots}/${summary.comfort_slots} slots</p>
+                            <p><strong>Total Transitions:</strong> ${heatingData.transitions ? heatingData.transitions.length : 0}</p>
+                        `;
                     }
 
                     // Update chart
-                    const timeLabels = data.latest.map(rate => {
+                    console.log('Creating chart with', rateData.latest.length, 'data points');
+                    const timeLabels = rateData.latest.map(rate => {
                         const date = new Date(rate.valid_from);
                         return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                     });
-                    const values = data.latest.map(rate => rate.value_inc_vat);
+                    const values = rateData.latest.map(rate => rate.value_inc_vat);
+                    console.log('Chart data prepared:', { timeLabels: timeLabels.length, values: values.length });
 
                     // Destroy existing chart if it exists
                     if (window.rateChart) {
                         window.rateChart.destroy();
                     }
 
-                    const ctx = document.getElementById('ratesChart').getContext('2d');
+                    const canvas = document.getElementById('ratesChart');
+                    if (!canvas) {
+                        console.error('Canvas element not found!');
+                        return;
+                    }
+                    const ctx = canvas.getContext('2d');
+                    console.log('Chart context created, creating chart...');
+                    console.log('Canvas dimensions:', canvas.width, 'x', canvas.height);
                     window.rateChart = new Chart(ctx, {
                         type: 'line',
                         data: {
@@ -135,9 +213,9 @@
                                         padding: 15,  // Adjusted padding for better spacing
                                         autoSkip: false,  // Don't skip any ticks
                                         callback: function (value, index) {
-                                            if (!data.latest || index >= data.latest.length) return '';
+                                            if (!rateData.latest || index >= rateData.latest.length) return '';
 
-                                            const date = new Date(data.latest[index].valid_from);
+                                            const date = new Date(rateData.latest[index].valid_from);
                                             const currentDay = date.getDate();
 
                                             // Find the start and end indices for the current date
@@ -146,13 +224,13 @@
 
                                             // Look backwards to find first entry for this date
                                             while (firstIndex > 0 &&
-                                                new Date(data.latest[firstIndex - 1].valid_from).getDate() === currentDay) {
+                                                new Date(rateData.latest[firstIndex - 1].valid_from).getDate() === currentDay) {
                                                 firstIndex--;
                                             }
 
                                             // Look forwards to find last entry for this date
-                                            while (lastIndex < data.latest.length - 1 &&
-                                                new Date(data.latest[lastIndex + 1].valid_from).getDate() === currentDay) {
+                                            while (lastIndex < rateData.latest.length - 1 &&
+                                                new Date(rateData.latest[lastIndex + 1].valid_from).getDate() === currentDay) {
                                                 lastIndex++;
                                             }
 
@@ -183,22 +261,22 @@
                                             type: 'line',
                                             scaleID: 'x',
                                             value: function (ctx) {
-                                                const asAtDate = new Date(data.as_at);
+                                                const asAtDate = new Date(rateData.as_at);
                                                 const asAtTime = asAtDate.getTime();
 
                                                 // Find the surrounding time points
-                                                let nextIndex = data.latest.findIndex(rate =>
+                                                let nextIndex = rateData.latest.findIndex(rate =>
                                                     new Date(rate.valid_from).getTime() > asAtTime
                                                 );
-                                                if (nextIndex === -1) nextIndex = data.latest.length;
+                                                if (nextIndex === -1) nextIndex = rateData.latest.length;
                                                 const prevIndex = nextIndex - 1;
 
                                                 if (prevIndex < 0) return 0;  // Before first point
-                                                if (nextIndex >= data.latest.length) return data.latest.length - 1;  // After last point
+                                                if (nextIndex >= rateData.latest.length) return rateData.latest.length - 1;  // After last point
 
                                                 // Calculate interpolation
-                                                const prevTime = new Date(data.latest[prevIndex].valid_from).getTime();
-                                                const nextTime = new Date(data.latest[nextIndex].valid_from).getTime();
+                                                const prevTime = new Date(rateData.latest[prevIndex].valid_from).getTime();
+                                                const nextTime = new Date(rateData.latest[nextIndex].valid_from).getTime();
                                                 const fraction = (asAtTime - prevTime) / (nextTime - prevTime);
 
                                                 // Return interpolated position
@@ -208,16 +286,19 @@
                                             borderWidth: 2,
                                             label: {
                                                 display: true,
-                                                content: 'Current Time: ' + new Date(data.as_at).toLocaleTimeString([],
+                                                content: 'Current Time: ' + new Date(rateData.as_at).toLocaleTimeString([],
                                                     { hour: '2-digit', minute: '2-digit' }),
                                                 position: 'top'
                                             }
-                                        }
+                                        },
+                                        ...generateHeatingAnnotations(heatingData, rateData)
                                     }
                                 }
                             }
                         }
                     });
+                    console.log('Chart created successfully');
+                    console.log('Chart instance:', window.rateChart);
                 })
                 .catch(error => {
                     console.error('Error fetching rates:', error);

@@ -1,5 +1,6 @@
 from flask import Flask, render_template, jsonify
 from src.octopus_api import get_octopus_rates
+from src.optimiser import optimize_heating_schedule
 from src.config import get_config
 from src.utils.date_utils import datetime_to_json_str
 import os
@@ -56,6 +57,17 @@ def get_rates():
                 ],
             }
         )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/heating-schedule")
+def get_heating_schedule():
+    """API endpoint to get the optimized heating schedule."""
+    try:
+        rate_data = get_octopus_rates()
+        optimised_heating_schedule = optimize_heating_schedule(rate_data.latest)
+        return jsonify(optimised_heating_schedule)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

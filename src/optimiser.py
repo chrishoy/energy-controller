@@ -1,6 +1,6 @@
 from datetime import timezone
 from typing import List, Tuple, Dict, Any
-from rate_data import Rate
+from .rate_data import Rate
 
 
 def optimize_heating_schedule(
