@@ -101,39 +101,73 @@
                             maintainAspectRatio: false,
                             scales: {
                                 y: {
-                                    beginAtZero: false,
-                                    title: {
-                                        display: true,
-                                        text: 'Price (p/kWh)'
-                                    }
+                                    beginAtZero: false
                                 },
                                 x: {
                                     title: {
-                                        display: true,
-                                        text: 'Time'
+                                        display: false
                                     },
                                     ticks: {
                                         callback: function (value, index) {
                                             return timeLabels[index];
                                         }
+                                    },
+                                    grid: {
+                                        display: false  // Remove vertical grid lines
+                                    },
+                                    // Add extra padding at bottom for date labels
+                                    afterFit: function (scale) {
+                                        scale.paddingBottom = 35;  // Adjusted padding for date labels
                                     }
                                 },
                                 x2: {
                                     type: 'category',
-                                    position: 'top',
+                                    position: 'bottom',
                                     grid: {
-                                        drawOnChartArea: false
+                                        display: false  // Remove vertical grid lines
+                                    },
+                                    border: {
+                                        display: false
                                     },
                                     ticks: {
+                                        maxRotation: 0,
+                                        minRotation: 0,
+                                        padding: 15,  // Adjusted padding for better spacing
+                                        autoSkip: false,  // Don't skip any ticks
                                         callback: function (value, index) {
-                                            // Show date label only at midnight or first data point
-                                            const currentDate = new Date(data.latest[index].valid_from);
-                                            if (index === 0 ||
-                                                (index > 0 &&
-                                                    new Date(data.latest[index - 1].valid_from).getDate() !== currentDate.getDate())) {
-                                                return currentDate.toLocaleDateString([],
+                                            if (!data.latest || index >= data.latest.length) return '';
+
+                                            const date = new Date(data.latest[index].valid_from);
+                                            const currentDay = date.getDate();
+
+                                            // Find the start and end indices for the current date
+                                            let firstIndex = index;
+                                            let lastIndex = index;
+
+                                            // Look backwards to find first entry for this date
+                                            while (firstIndex > 0 &&
+                                                new Date(data.latest[firstIndex - 1].valid_from).getDate() === currentDay) {
+                                                firstIndex--;
+                                            }
+
+                                            // Look forwards to find last entry for this date
+                                            while (lastIndex < data.latest.length - 1 &&
+                                                new Date(data.latest[lastIndex + 1].valid_from).getDate() === currentDay) {
+                                                lastIndex++;
+                                            }
+
+                                            // Show markers at actual first and last data points for the date
+                                            if (index === firstIndex || index === lastIndex) {
+                                                return '|';
+                                            }
+
+                                            // Show date label at center point between first and last actual data points
+                                            const centerIndex = Math.floor((firstIndex + lastIndex) / 2);
+                                            if (index === centerIndex) {
+                                                return date.toLocaleDateString([],
                                                     { weekday: 'short', month: 'short', day: 'numeric' });
                                             }
+
                                             return '';
                                         }
                                     }
