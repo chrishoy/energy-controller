@@ -5,7 +5,7 @@ from datetime import datetime, time, timedelta
 from typing import List, Optional
 import pytz
 from .config import get_config
-from .rate_data import LOCAL_TZ, Rate, RateData, zulu_to_local, rate_data_to_json
+from .rate_data import LOCAL_TZ, Rate, RateData, zulu_to_local
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -31,62 +31,68 @@ def get_current_rate(latest_prices: List[Rate]) -> tuple[datetime, Optional[Rate
     return as_at_dt, current_rate
 
 
-def get_cached_rates() -> Optional[RateData]:
+def get_cached_prices() -> Optional[List[Rate]]:
     """
-    Attempts to load cached rate data from latest_prices.json.
+    Attempts to load cached price data from latest_prices.json.
     Returns None if the cache doesn't exist or is invalid.
     """
     try:
-        with open("latest_prices.json", "r") as f:
-            cached_data = json.loads(f.read())
+        cache_path = "latest_prices.json"
+        # Check if cache file exists and get its timestamp
+        from pathlib import Path
+
+        cache_file = Path(cache_path)
+        if not cache_file.exists():
+            return None
 
         # Check if cache is still valid (less than 30 minutes old)
-        cached_time = datetime.fromisoformat(cached_data["as_at"])
-        age = datetime.now(LOCAL_TZ) - cached_time
-        if age < timedelta(minutes=30):
-            logger.info(
-                f"Using cached data from {age.total_seconds() / 60:.1f} minutes ago"
-            )
-            # Reconstruct Rate objects from cached JSON
-            latest_prices = [
-                Rate(
-                    value_exc_vat=rate["value_exc_vat"],
-                    value_inc_vat=rate["value_inc_vat"],
-                    valid_from=datetime.fromisoformat(rate["valid_from"]),
-                    valid_to=datetime.fromisoformat(rate["valid_to"]),
-                )
-                for rate in cached_data["latest"]
-            ]
+        cache_timestamp = datetime.fromtimestamp(cache_file.stat().st_mtime, LOCAL_TZ)
+        age = datetime.now(LOCAL_TZ) - cache_timestamp
+        if age >= timedelta(minutes=30):
+            return None
 
-            # Find current rate based on current time
-            as_at_dt, current_rate = get_current_rate(latest_prices)
+        logger.info(
+            f"Using cached data from {age.total_seconds() / 60:.1f} minutes ago"
+        )
 
-            data_read_at = (
-                datetime.fromisoformat(cached_data["data_read_at"])
-                if "data_read_at" in cached_data
-                else None
-            )
+        # Load and reconstruct Rate objects from cached JSON
+        with open(cache_path, "r") as f:
+            cached_prices = json.load(f)
 
-            return RateData(
-                latest=latest_prices,
-                current=current_rate,
-                as_at=as_at_dt,
-                data_read_at=data_read_at,
+        return [
+            Rate(
+                value_exc_vat=rate["value_exc_vat"],
+                value_inc_vat=rate["value_inc_vat"],
+                valid_from=datetime.fromisoformat(rate["valid_from"]),
+                valid_to=datetime.fromisoformat(rate["valid_to"]),
             )
-    except (FileNotFoundError, json.JSONDecodeError, KeyError, ValueError):
+            for rate in cached_prices
+        ]
+    except (FileNotFoundError, json.JSONDecodeError, KeyError, ValueError) as e:
+        logger.warning(f"Error reading cache: {e}")
         return None
 
 
 def get_octopus_rates() -> RateData:
     """
-    Fetches rates, saves raw data, and returns a RateData dataclass
-    with current and historical local-time prices.
-    Uses cached data if available and less than 30 minutes old.
+    Fetches rates and returns a RateData dataclass with current and historical local-time prices.
+    Uses cached price data if available and less than 30 minutes old.
     """
-    # Try to get cached data first
-    cached_data = get_cached_rates()
-    if cached_data:
-        return cached_data
+    from pathlib import Path
+
+    # Try to get cached prices first
+    latest_prices = get_cached_prices()
+    if latest_prices is not None:
+        # Get cache file timestamp for data_read_at
+        cache_path = Path("latest_prices.json")
+        data_read_at = datetime.fromtimestamp(cache_path.stat().st_mtime, LOCAL_TZ)
+        as_at_dt, current_rate = get_current_rate(latest_prices)
+        return RateData(
+            latest=latest_prices,
+            current=current_rate,
+            as_at=as_at_dt,
+            data_read_at=data_read_at,
+        )
 
     # If no valid cache, fetch fresh data
     logger.info("Cache miss or expired, fetching fresh data from Octopus API")
@@ -149,15 +155,31 @@ def get_octopus_rates() -> RateData:
     # 4. Determine 'current' Price
     as_at_dt, current_price = get_current_rate(latest_prices)
 
-    # 5. Return the final RateData object
-    price_data = RateData(
+    # 5. Save latest prices to cache and return RateData
+    with open("latest_prices.json", "w") as f:
+        json.dump(
+            [
+                {
+                    "value_exc_vat": rate.value_exc_vat,
+                    "value_inc_vat": rate.value_inc_vat,
+                    "valid_from": rate.valid_from.isoformat(),
+                    "valid_to": rate.valid_to.isoformat(),
+                }
+                for rate in latest_prices
+            ],
+            f,
+            indent=4,
+        )
+
+    # Get the cache file timestamp for data_read_at
+    from pathlib import Path
+
+    cache_path = Path("latest_prices.json")
+    data_read_at = datetime.fromtimestamp(cache_path.stat().st_mtime, LOCAL_TZ)
+
+    return RateData(
         latest=latest_prices,
         current=current_price,
         as_at=as_at_dt,
-        data_read_at=as_at_dt,
+        data_read_at=data_read_at,
     )
-    price_data_json = rate_data_to_json(price_data)
-    with open("latest_prices.json", "w") as f:
-        f.write(price_data_json)
-
-    return price_data
