@@ -132,7 +132,11 @@ function updateChart(rateData, heatingData) {
                     position: 'top',
                     labels: {
                         usePointStyle: true,
-                        padding: 20
+                        padding: 20,
+                        filter: function (legendItem, chartData) {
+                            // Hide datasets with empty labels (heating periods)
+                            return legendItem.text !== '';
+                        }
                     }
                 },
                 annotation: {

@@ -43,7 +43,7 @@ function generateHeatingPeriods(heatingData, rateData) {
         if (isHeating && !currentPeriod) {
             // Start of heating period
             currentPeriod = {
-                label: 'Heating Period',
+                label: '',
                 data: new Array(rateData.latest.length).fill(null),
                 backgroundColor: 'rgba(40, 167, 69, 0.12)', // Very light green background
                 borderColor: 'rgba(40, 167, 69, 0.2)',
@@ -53,7 +53,9 @@ function generateHeatingPeriods(heatingData, rateData) {
                 pointHoverRadius: 0,
                 tension: 0,
                 stepped: 'before',
-                showLine: false // Hide the line, only show fill
+                showLine: false, // Hide the line, only show fill
+                hidden: true, // Completely hide from legend
+                legend: false // Exclude from legend completely
             };
         } else if (!isHeating && currentPeriod) {
             // End of heating period
