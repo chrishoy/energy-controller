@@ -58,6 +58,77 @@
             return new Date(dateString).toLocaleString();
         }
 
+        // Function to generate heating periods for background fill
+        function generateHeatingPeriods(heatingData, rateData) {
+            const periods = [];
+
+            if (!heatingData.transitions || !rateData.latest) {
+                return periods;
+            }
+
+            let currentHeatingState = false;
+            let periodStart = null;
+
+            // Create a map of heating states for each time slot
+            const heatingStates = new Map();
+
+            heatingData.transitions.forEach(transition => {
+                const transitionTime = new Date(transition.time);
+                const transitionTimeMs = transitionTime.getTime();
+
+                // Find the index in rateData.latest that corresponds to this transition
+                let rateIndex = rateData.latest.findIndex(rate => {
+                    const rateTime = new Date(rate.valid_from).getTime();
+                    return rateTime >= transitionTimeMs;
+                });
+
+                if (rateIndex === -1) rateIndex = rateData.latest.length - 1;
+
+                // Set heating state for this time and all subsequent times until next transition
+                for (let i = rateIndex; i < rateData.latest.length; i++) {
+                    heatingStates.set(i, transition.on);
+                }
+            });
+
+            // Create background fill datasets for heating periods
+            let currentPeriod = null;
+            for (let i = 0; i < rateData.latest.length; i++) {
+                const isHeating = heatingStates.get(i) || false;
+
+                if (isHeating && !currentPeriod) {
+                    // Start of heating period
+                    currentPeriod = {
+                        label: 'Heating Period',
+                        data: new Array(rateData.latest.length).fill(null),
+                        backgroundColor: 'rgba(40, 167, 69, 0.12)', // Very light green background
+                        borderColor: 'rgba(40, 167, 69, 0.2)',
+                        borderWidth: 0,
+                        fill: 'origin',
+                        pointRadius: 0,
+                        pointHoverRadius: 0,
+                        tension: 0,
+                        stepped: 'before',
+                        showLine: false // Hide the line, only show fill
+                    };
+                } else if (!isHeating && currentPeriod) {
+                    // End of heating period
+                    periods.push(currentPeriod);
+                    currentPeriod = null;
+                }
+
+                if (currentPeriod) {
+                    currentPeriod.data[i] = rateData.latest[i].value_inc_vat;
+                }
+            }
+
+            // Add final period if it ends with heating
+            if (currentPeriod) {
+                periods.push(currentPeriod);
+            }
+
+            return periods;
+        }
+
         // Function to generate heating schedule annotations
         function generateHeatingAnnotations(heatingData, rateData) {
             const annotations = {};
@@ -84,17 +155,16 @@
                     scaleID: 'x',
                     value: rateIndex,
                     borderColor: transition.on ? '#28a745' : '#dc3545',
-                    borderWidth: 3,
-                    borderDash: transition.on ? [] : [5, 5],
+                    borderWidth: 1,
+                    borderDash: transition.on ? [] : [3, 3],
                     label: {
-                        display: true,
-                        content: (transition.on ? 'HEATING ON' : 'HEATING OFF') +
-                            ' (' + transition.price.toFixed(2) + 'p)',
+                        display: transition.on, // Only show labels for Heating ON
+                        content: transition.on ? transition.price.toFixed(2) + 'p' : '',
                         position: 'end',
-                        backgroundColor: transition.on ? '#28a745' : '#dc3545',
+                        backgroundColor: transition.on ? '#28a745' : 'transparent',
                         color: 'white',
                         font: {
-                            size: 10,
+                            size: 9,
                             weight: 'bold'
                         }
                     }
@@ -160,19 +230,29 @@
                     const ctx = canvas.getContext('2d');
                     console.log('Chart context created, creating chart...');
                     console.log('Canvas dimensions:', canvas.width, 'x', canvas.height);
+                    // Create heating periods data for background fill
+                    const heatingPeriods = generateHeatingPeriods(heatingData, rateData);
+
                     window.rateChart = new Chart(ctx, {
                         type: 'line',
                         data: {
                             labels: timeLabels,
-                            datasets: [{
-                                label: 'Rate (p/kWh)',
-                                data: values,
-                                borderColor: 'rgb(75, 192, 192)',
-                                stepped: 'before',  // This creates the step effect
-                                pointRadius: 1,     // Small points at the corners
-                                pointHoverRadius: 5,
-                                fill: false
-                            }]
+                            datasets: [
+                                // Heating background areas
+                                ...heatingPeriods,
+                                // Main price line
+                                {
+                                    label: 'Rate (p/kWh)',
+                                    data: values,
+                                    borderColor: 'rgb(75, 192, 192)',
+                                    backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                                    stepped: 'before',  // This creates the step effect
+                                    pointRadius: 1,     // Small points at the corners
+                                    pointHoverRadius: 5,
+                                    fill: false,
+                                    tension: 0
+                                }
+                            ]
                         },
                         options: {
                             responsive: true,
@@ -255,6 +335,14 @@
                                 duration: 0 // Disable animation for smoother updates
                             },
                             plugins: {
+                                legend: {
+                                    display: true,
+                                    position: 'top',
+                                    labels: {
+                                        usePointStyle: true,
+                                        padding: 20
+                                    }
+                                },
                                 annotation: {
                                     annotations: {
                                         currentTime: {
