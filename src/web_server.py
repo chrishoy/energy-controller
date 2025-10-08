@@ -35,10 +35,14 @@ def get_rates():
                         current_rate.value_inc_vat if current_rate else None
                     ),
                     "valid_from": (
-                        datetime_to_json_str(current_rate.valid_from) if current_rate else None
+                        datetime_to_json_str(current_rate.valid_from)
+                        if current_rate
+                        else None
                     ),
                     "valid_to": (
-                        datetime_to_json_str(current_rate.valid_to) if current_rate else None
+                        datetime_to_json_str(current_rate.valid_to)
+                        if current_rate
+                        else None
                     ),
                 },
                 "latest": [
