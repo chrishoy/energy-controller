@@ -37,6 +37,49 @@ def get_current_rate(latest_prices: List[Rate]) -> tuple[datetime, Optional[Rate
     return as_at_dt, current_rate
 
 
+def merge_price_data(existing_prices: List[Rate], new_prices: List[Rate]) -> List[Rate]:
+    """
+    Merges existing cached price data with new price data, maintaining a 48-hour window.
+    Preserves historical data while adding new data, removing data older than 48 hours.
+
+    Args:
+        existing_prices: Previously cached price data
+        new_prices: Fresh price data from API
+
+    Returns:
+        Merged list of prices covering at least 48 hours
+    """
+    now = datetime.now(LOCAL_TZ)
+    cutoff_time = now - timedelta(hours=48)
+
+    # Filter existing prices to keep only those within 48 hours
+    filtered_existing = [
+        price for price in existing_prices if price.valid_from >= cutoff_time
+    ]
+
+    # Combine filtered existing prices with new prices
+    all_prices = filtered_existing + new_prices
+
+    # Remove duplicates based on valid_from time (new data takes precedence)
+    seen_times = set()
+    unique_prices = []
+
+    for price in all_prices:
+        time_key = price.valid_from
+        if time_key not in seen_times:
+            seen_times.add(time_key)
+            unique_prices.append(price)
+
+    # Sort by valid_from time
+    unique_prices.sort(key=lambda r: r.valid_from)
+
+    logger.info(
+        f"Merged price data: {len(filtered_existing)} existing + "
+        f"{len(new_prices)} new = {len(unique_prices)} total"
+    )
+    return unique_prices
+
+
 def get_cached_prices() -> Optional[List[Rate]]:
     """
     Attempts to load cached price data from latest_prices.json.
@@ -51,10 +94,11 @@ def get_cached_prices() -> Optional[List[Rate]]:
         if not cache_file.exists():
             return None
 
-        # Check if cache is still valid (less than 30 minutes old)
+        # Check if cache is still valid (less than 2 hours old)
+        # Extended from 30 minutes to 2 hours to reduce API calls
         cache_timestamp = datetime.fromtimestamp(cache_file.stat().st_mtime, LOCAL_TZ)
         age = datetime.now(LOCAL_TZ) - cache_timestamp
-        if age >= timedelta(minutes=30):
+        if age >= timedelta(hours=2):
             return None
 
         logger.info(
@@ -81,8 +125,8 @@ def get_cached_prices() -> Optional[List[Rate]]:
 
 def get_octopus_rates() -> RateData:
     """
-    Fetches rates and returns a RateData dataclass with current and historical local-time prices.
-    Uses cached price data if available and less than 30 minutes old.
+    Fetches rates and returns a RateData dataclass with current and historical prices.
+    Uses cached price data if available and less than 2 hours old.
     """
     from pathlib import Path
 
@@ -159,7 +203,40 @@ def get_octopus_rates() -> RateData:
     # 4. Determine 'current' Price
     as_at_dt, current_price = get_current_rate(latest_prices)
 
-    # 5. Save latest prices to cache and return RateData
+    # 5. Try to load existing cached data for merging (ignore cache validity)
+    existing_cached_prices = None
+    try:
+        cache_path = "latest_prices.json"
+        from pathlib import Path
+
+        cache_file = Path(cache_path)
+        if cache_file.exists():
+            with open(cache_path, "r") as f:
+                cached_data = json.load(f)
+            existing_cached_prices = [
+                Rate(
+                    value_exc_vat=rate["value_exc_vat"],
+                    value_inc_vat=rate["value_inc_vat"],
+                    valid_from=json_str_to_datetime(rate["valid_from"]),
+                    valid_to=json_str_to_datetime(rate["valid_to"]),
+                )
+                for rate in cached_data
+            ]
+    except (FileNotFoundError, json.JSONDecodeError, KeyError, ValueError) as e:
+        logger.info(f"No existing cache to merge: {e}")
+
+    # Merge with existing cached data to maintain 48-hour window
+    if existing_cached_prices is not None:
+        # Merge existing data with new data
+        merged_prices = merge_price_data(existing_cached_prices, latest_prices)
+        # Update latest_prices to use merged data
+        latest_prices = merged_prices
+        # Re-sort to ensure proper ordering
+        latest_prices.sort(key=lambda r: r.valid_from)
+        # Recalculate current rate with merged data
+        as_at_dt, current_price = get_current_rate(latest_prices)
+
+    # 6. Save merged prices to cache and return RateData
     with open("latest_prices.json", "w") as f:
         json.dump(
             [
