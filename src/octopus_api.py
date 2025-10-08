@@ -3,9 +3,15 @@ import json
 import logging
 from datetime import datetime, time, timedelta
 from typing import List, Optional
-import pytz
 from .config import get_config
-from .rate_data import LOCAL_TZ, Rate, RateData, zulu_to_local
+from .rate_data import Rate, RateData
+from .utils.date_utils import (
+    LOCAL_TZ,
+    zulu_to_local,
+    local_to_zulu_str,
+    datetime_to_json_str,
+    json_str_to_datetime,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -63,8 +69,8 @@ def get_cached_prices() -> Optional[List[Rate]]:
             Rate(
                 value_exc_vat=rate["value_exc_vat"],
                 value_inc_vat=rate["value_inc_vat"],
-                valid_from=datetime.fromisoformat(rate["valid_from"]),
-                valid_to=datetime.fromisoformat(rate["valid_to"]),
+                valid_from=json_str_to_datetime(rate["valid_from"]),
+                valid_to=json_str_to_datetime(rate["valid_to"]),
             )
             for rate in cached_prices
         ]
@@ -114,11 +120,9 @@ def get_octopus_rates() -> RateData:
     )
     end_period_local = LOCAL_TZ.localize(start_of_day_after_tomorrow_naive)
 
-    # Convert to ISO 8601 Zulu format required by the API
-    period_from = (
-        start_of_today_local.astimezone(pytz.utc).isoformat().replace("+00:00", "Z")
-    )
-    period_to = end_period_local.astimezone(pytz.utc).isoformat().replace("+00:00", "Z")
+    # Convert to Zulu format required by the API
+    period_from = local_to_zulu_str(start_of_today_local)
+    period_to = local_to_zulu_str(end_period_local)
 
     standard_elec_rates_url = (
         f"{octopus_base_url}/{product_code}/electricity-tariffs/"
@@ -162,8 +166,8 @@ def get_octopus_rates() -> RateData:
                 {
                     "value_exc_vat": rate.value_exc_vat,
                     "value_inc_vat": rate.value_inc_vat,
-                    "valid_from": rate.valid_from.isoformat(),
-                    "valid_to": rate.valid_to.isoformat(),
+                    "valid_from": datetime_to_json_str(rate.valid_from),
+                    "valid_to": datetime_to_json_str(rate.valid_to),
                 }
                 for rate in latest_prices
             ],

@@ -1,14 +1,11 @@
+"""Data structures for rate information."""
+
 from datetime import datetime
 from dataclasses import dataclass, asdict
 import json
 from typing import List, Optional
-import pytz
 from json import JSONEncoder
-
-
-# --- Configuration ---
-LOCAL_TZ_NAME = "Europe/London"
-LOCAL_TZ = pytz.timezone(LOCAL_TZ_NAME)
+from .utils.date_utils import LOCAL_TZ
 
 # --- Data Classes ---
 
@@ -66,13 +63,3 @@ def rate_data_to_json(price_data: RateData) -> str:
     """
     # Use the custom encoder and set ensure_ascii=False for proper characters
     return json.dumps(price_data, indent=4, cls=RateDataEncoder, ensure_ascii=False)
-
-
-def zulu_to_local(zulu_time_str: str) -> datetime:
-    """Converts a Zulu (UTC) datetime string to a localized datetime object."""
-    if zulu_time_str.endswith("Z"):
-        zulu_time_str = zulu_time_str[:-1] + "+00:00"
-
-    utc_dt = datetime.fromisoformat(zulu_time_str).replace(tzinfo=pytz.utc)
-    local_dt = utc_dt.astimezone(LOCAL_TZ)
-    return local_dt

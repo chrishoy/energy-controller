@@ -34,7 +34,6 @@
 </head>
 
 <body>
-    <h1>Energy Rates</h1>
     <div class="current-rate">
         <p>Current Price inc. VAT: <span id="current-price">Loading...</span> p/kWh</p>
         <p>As At: <span id="as-at">Loading...</span></p>
@@ -161,7 +160,8 @@
                                             borderWidth: 2,
                                             label: {
                                                 display: true,
-                                                content: 'Current Time',
+                                                content: 'Current Time: ' + new Date(data.as_at).toLocaleTimeString([], 
+                                                    { hour: '2-digit', minute: '2-digit' }),
                                                 position: 'top'
                                             }
                                         }
