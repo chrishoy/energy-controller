@@ -149,12 +149,26 @@
                                             type: 'line',
                                             scaleID: 'x',
                                             value: function (ctx) {
-                                                // Find the index that matches the as_at time
                                                 const asAtDate = new Date(data.as_at);
-                                                return timeLabels.findIndex((_, index) => {
-                                                    const rateTime = new Date(data.latest[index].valid_from);
-                                                    return rateTime > asAtDate;
-                                                }) - 1;
+                                                const asAtTime = asAtDate.getTime();
+
+                                                // Find the surrounding time points
+                                                let nextIndex = data.latest.findIndex(rate =>
+                                                    new Date(rate.valid_from).getTime() > asAtTime
+                                                );
+                                                if (nextIndex === -1) nextIndex = data.latest.length;
+                                                const prevIndex = nextIndex - 1;
+
+                                                if (prevIndex < 0) return 0;  // Before first point
+                                                if (nextIndex >= data.latest.length) return data.latest.length - 1;  // After last point
+
+                                                // Calculate interpolation
+                                                const prevTime = new Date(data.latest[prevIndex].valid_from).getTime();
+                                                const nextTime = new Date(data.latest[nextIndex].valid_from).getTime();
+                                                const fraction = (asAtTime - prevTime) / (nextTime - prevTime);
+
+                                                // Return interpolated position
+                                                return prevIndex + fraction;
                                             },
                                             borderColor: 'red',
                                             borderWidth: 2,
