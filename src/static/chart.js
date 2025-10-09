@@ -41,7 +41,7 @@ function updateChart(rateData, heatingData) {
                     stepped: 'before',  // This creates the step effect
                     pointRadius: 1,     // Small points at the corners
                     pointHoverRadius: 5,
-                    fill: false,
+                    fill: true, // Fill the area under the line
                     tension: 0
                 }
             ]
@@ -51,7 +51,7 @@ function updateChart(rateData, heatingData) {
             maintainAspectRatio: false,
             scales: {
                 y: {
-                    beginAtZero: false
+                    beginAtZero: false // Set to false since we're using fill: '+1'
                 },
                 x: {
                     title: {

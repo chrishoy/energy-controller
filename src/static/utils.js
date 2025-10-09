@@ -11,9 +11,6 @@ function generateHeatingPeriods(heatingData, rateData) {
         return periods;
     }
 
-    let currentHeatingState = false;
-    let periodStart = null;
-
     // Create a map of heating states for each time slot
     const heatingStates = new Map();
 
@@ -35,32 +32,36 @@ function generateHeatingPeriods(heatingData, rateData) {
         }
     });
 
-    // Create background fill datasets for heating periods
+    // Create segmented background areas for heating vs non-heating
     let currentPeriod = null;
+    let currentHeatingState = false;
+
     for (let i = 0; i < rateData.latest.length; i++) {
         const isHeating = heatingStates.get(i) || false;
 
-        if (isHeating && !currentPeriod) {
-            // Start of heating period
+        if (isHeating !== currentHeatingState) {
+            // State change - end current period and start new one
+            if (currentPeriod) {
+                periods.push(currentPeriod);
+            }
+
+            // Start new period
             currentPeriod = {
                 label: '',
                 data: new Array(rateData.latest.length).fill(null),
-                backgroundColor: 'rgba(40, 167, 69, 0.12)', // Very light green background
-                borderColor: 'rgba(40, 167, 69, 0.2)',
+                backgroundColor: isHeating ? 'rgba(40, 167, 69, 0.3)' : 'rgba(75, 192, 192, 0.1)',
+                borderColor: 'transparent',
                 borderWidth: 0,
-                fill: 'origin',
+                fill: '+1', // Fill to the next dataset (main price line)
                 pointRadius: 0,
                 pointHoverRadius: 0,
                 tension: 0,
                 stepped: 'before',
-                showLine: false, // Hide the line, only show fill
-                hidden: true, // Completely hide from legend
-                legend: false // Exclude from legend completely
+                showLine: true,
+                hidden: true,
+                legend: false
             };
-        } else if (!isHeating && currentPeriod) {
-            // End of heating period
-            periods.push(currentPeriod);
-            currentPeriod = null;
+            currentHeatingState = isHeating;
         }
 
         if (currentPeriod) {
@@ -68,7 +69,7 @@ function generateHeatingPeriods(heatingData, rateData) {
         }
     }
 
-    // Add final period if it ends with heating
+    // Add final period
     if (currentPeriod) {
         periods.push(currentPeriod);
     }
