@@ -51,7 +51,7 @@ function updateChart(rateData, heatingData) {
             maintainAspectRatio: false,
             scales: {
                 y: {
-                    beginAtZero: false // Set to false since we're using fill: '+1'
+                    beginAtZero: true // Set to true to create a baseline for area fills
                 },
                 x: {
                     title: {

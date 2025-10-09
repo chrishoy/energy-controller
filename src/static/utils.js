@@ -32,47 +32,28 @@ function generateHeatingPeriods(heatingData, rateData) {
         }
     });
 
-    // Create segmented background areas for heating vs non-heating
-    let currentPeriod = null;
-    let currentHeatingState = false;
-
-    for (let i = 0; i < rateData.latest.length; i++) {
+    // Create a single heating period dataset
+    const heatingDataArray = rateData.latest.map((rate, i) => {
         const isHeating = heatingStates.get(i) || false;
+        return isHeating ? rate.value_inc_vat : null;
+    });
 
-        if (isHeating !== currentHeatingState) {
-            // State change - end current period and start new one
-            if (currentPeriod) {
-                periods.push(currentPeriod);
-            }
-
-            // Start new period
-            currentPeriod = {
-                label: '',
-                data: new Array(rateData.latest.length).fill(null),
-                backgroundColor: isHeating ? 'rgba(40, 167, 69, 0.3)' : 'rgba(75, 192, 192, 0.1)',
-                borderColor: 'transparent',
-                borderWidth: 0,
-                fill: '+1', // Fill to the next dataset (main price line)
-                pointRadius: 0,
-                pointHoverRadius: 0,
-                tension: 0,
-                stepped: 'before',
-                showLine: true,
-                hidden: true,
-                legend: false
-            };
-            currentHeatingState = isHeating;
-        }
-
-        if (currentPeriod) {
-            currentPeriod.data[i] = rateData.latest[i].value_inc_vat;
-        }
-    }
-
-    // Add final period
-    if (currentPeriod) {
-        periods.push(currentPeriod);
-    }
+    // Add heating period dataset
+    periods.push({
+        label: '',
+        data: heatingDataArray,
+        backgroundColor: 'rgba(40, 167, 69, 0.3)', // Green background
+        borderColor: 'transparent', // Make border transparent
+        borderWidth: 0,
+        fill: 'origin', // Fill from origin (baseline)
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        tension: 0,
+        stepped: 'before',
+        showLine: true, // Enable line for area fill to work
+        hidden: true, // Completely hide from legend
+        legend: false // Exclude from legend completely
+    });
 
     return periods;
 }
