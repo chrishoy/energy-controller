@@ -3,6 +3,8 @@ import json
 import logging
 from datetime import datetime, time, timedelta
 from typing import List, Optional
+from pathlib import Path
+
 from .config import get_config
 from .rate_data import Rate, RateData
 from .utils.date_utils import (
@@ -17,98 +19,99 @@ from .utils.date_utils import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+CACHE_FILE = Path("latest_prices.json")
+CACHE_EXPIRY_HOURS = 2
+DATA_WINDOW_HOURS = 48
+
+
+# ----------------------------------------------------------------------------
+# Helper Functions
+# ----------------------------------------------------------------------------
+
 
 def get_current_rate(latest_prices: List[Rate]) -> tuple[datetime, Optional[Rate]]:
-    """
-    Determines the current rate from a list of rates based on the current time.
-
-    Args:
-        latest_prices: List of Rate objects sorted by valid_from time
-
-    Returns:
-        Tuple of (current datetime with timezone, current rate or None if not found)
-    """
+    """Determines the current rate from a list of rates."""
     as_at_dt = datetime.now(LOCAL_TZ)
-    current_rate = None
     for price in latest_prices:
         if price.valid_from <= as_at_dt < price.valid_to:
-            current_rate = price
-            break
-    return as_at_dt, current_rate
+            return as_at_dt, price
+    return as_at_dt, None
 
 
 def merge_price_data(existing_prices: List[Rate], new_prices: List[Rate]) -> List[Rate]:
     """
-    Merges existing cached price data with new price data, maintaining a 48-hour window.
-    Preserves historical data while adding new data, removing data older than 48 hours.
-
-    Args:
-        existing_prices: Previously cached price data
-        new_prices: Fresh price data from API
-
-    Returns:
-        Merged list of prices covering at least 48 hours
+    Merges two lists of rates, removing duplicates. New prices take precedence.
     """
-    now = datetime.now(LOCAL_TZ)
-    cutoff_time = now - timedelta(hours=48)
+    combined_prices = existing_prices + new_prices
 
-    # Filter existing prices to keep only those within 48 hours
-    filtered_existing = [
-        price for price in existing_prices if price.valid_from >= cutoff_time
-    ]
-
-    # Combine filtered existing prices with new prices
-    all_prices = filtered_existing + new_prices
-
-    # Remove duplicates based on valid_from time (new data takes precedence)
     seen_times = set()
     unique_prices = []
-
-    for price in all_prices:
-        time_key = price.valid_from
-        if time_key not in seen_times:
-            seen_times.add(time_key)
+    # Iterate backwards to give precedence to new_prices items
+    for price in reversed(combined_prices):
+        if price.valid_from not in seen_times:
             unique_prices.append(price)
+            seen_times.add(price.valid_from)
 
-    # Sort by valid_from time
-    unique_prices.sort(key=lambda r: r.valid_from)
-
+    unique_prices.reverse()  # Restore chronological order
     logger.info(
-        f"Merged price data: {len(filtered_existing)} existing + "
-        f"{len(new_prices)} new = {len(unique_prices)} total"
+        f"Merged price data: {len(existing_prices)} existing + "
+        f"{len(new_prices)} new = {len(unique_prices)} unique rates."
     )
     return unique_prices
 
 
-def get_cached_prices() -> Optional[List[Rate]]:
-    """
-    Attempts to load cached price data from latest_prices.json.
-    Returns None if the cache doesn't exist or is invalid.
-    """
+def _fetch_new_rates_from_api() -> List[Rate]:
+    """Fetches the latest electricity rates from the Octopus Energy API."""
+    logger.info("Fetching fresh data from Octopus API.")
+    config = get_config()
+
+    # Define the time window for the API request (today and tomorrow)
+    now_local = datetime.now(LOCAL_TZ)
+    start_period = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_period = start_period + timedelta(days=2)
+
+    api_url = (
+        f"{config.OCTOPUS_BASE_URL}/{config.OCTOPUS_PRODUCT_CODE}/electricity-tariffs/"
+        f"{config.OCTOPUS_TARIFF_CODE}/standard-unit-rates/"
+    )
+    params = {
+        "period_from": local_to_zulu_str(start_period),
+        "period_to": local_to_zulu_str(end_period),
+        "page_size": 150,  # Sufficient for 2 days of 30-min slots
+    }
+
     try:
-        cache_path = "latest_prices.json"
-        # Check if cache file exists and get its timestamp
-        from pathlib import Path
-
-        cache_file = Path(cache_path)
-        if not cache_file.exists():
-            return None
-
-        # Check if cache is still valid (less than 2 hours old)
-        # Extended from 30 minutes to 2 hours to reduce API calls
-        cache_timestamp = datetime.fromtimestamp(cache_file.stat().st_mtime, LOCAL_TZ)
-        age = datetime.now(LOCAL_TZ) - cache_timestamp
-        if age >= timedelta(hours=2):
-            return None
-
-        logger.info(
-            f"Using cached data from {age.total_seconds() / 60:.1f} minutes ago"
+        response = requests.get(
+            api_url, auth=(config.OCTOPUS_API_KEY, ""), params=params
         )
+        response.raise_for_status()
+        data = response.json()
 
-        # Load and reconstruct Rate objects from cached JSON
-        with open(cache_path, "r") as f:
-            cached_prices = json.load(f)
+        # Process the API response into Rate objects
+        new_rates = [
+            Rate(
+                value_exc_vat=r["value_exc_vat"],
+                value_inc_vat=r["value_inc_vat"],
+                valid_from=zulu_to_local(r["valid_from"]),
+                valid_to=zulu_to_local(r["valid_to"]),
+            )
+            for r in data.get("results", [])
+        ]
+        new_rates.sort(key=lambda r: r.valid_from)
+        return new_rates
+    except (requests.RequestException, json.JSONDecodeError) as e:
+        logger.error(f"Failed to fetch or parse data from Octopus API: {e}")
+        return []
 
+
+def _load_rates_from_cache() -> Optional[List[Rate]]:
+    """Loads rates from the cache if the file exists."""
+    if not CACHE_FILE.exists():
+        return None
+
+    try:
+        with open(CACHE_FILE, "r") as f:
+            cached_data = json.load(f)
         return [
             Rate(
                 value_exc_vat=rate["value_exc_vat"],
@@ -116,151 +119,135 @@ def get_cached_prices() -> Optional[List[Rate]]:
                 valid_from=json_str_to_datetime(rate["valid_from"]),
                 valid_to=json_str_to_datetime(rate["valid_to"]),
             )
-            for rate in cached_prices
+            for rate in cached_data
         ]
-    except (FileNotFoundError, json.JSONDecodeError, KeyError, ValueError) as e:
-        logger.warning(f"Error reading cache: {e}")
+    except (json.JSONDecodeError, KeyError) as e:
+        logger.warning(f"Error reading cache file {CACHE_FILE}: {e}")
         return None
+
+
+def _save_rates_to_cache(rates: List[Rate]) -> None:
+    """Saves a list of rates to the cache file."""
+    logger.info(f"Saving {len(rates)} rates to cache file: {CACHE_FILE}")
+    serializable_rates = [
+        {
+            "value_exc_vat": rate.value_exc_vat,
+            "value_inc_vat": rate.value_inc_vat,
+            "valid_from": datetime_to_json_str(rate.valid_from),
+            "valid_to": datetime_to_json_str(rate.valid_to),
+        }
+        for rate in rates
+    ]
+    with open(CACHE_FILE, "w") as f:
+        json.dump(serializable_rates, f, indent=4)
+
+
+def _filter_rates_to_window(rates: List[Rate], hours: int) -> List[Rate]:
+    """
+    Filters rates to include only those from the start of yesterday.
+
+    This ensures the data window always begins at 00:00 of the previous day
+    in the local timezone, up to the latest available rate. For example, if run
+    on October 10th, it will include all rate slots from October 9th at 00:00:00
+    onwards.
+
+    Args:
+        rates: The list of Rate objects to filter.
+        hours: This parameter is ignored to conform to the new logic but is
+               kept for method signature consistency.
+
+    Returns:
+        A new list of Rate objects filtered to the specified time window.
+    """
+    # 1. Determine the start of yesterday in the local timezone.
+    now_local = datetime.now(LOCAL_TZ)
+    yesterday_date = now_local.date() - timedelta(days=1)
+
+    # Create a datetime object for yesterday at midnight.
+    start_of_yesterday_naive = datetime.combine(yesterday_date, time.min)
+
+    # Make the datetime object timezone-aware.
+    cutoff = LOCAL_TZ.localize(start_of_yesterday_naive)
+
+    # 2. Filter the rates. We keep any rate slot that *ends* after midnight yesterday.
+    # This correctly includes all slots starting from 00:00 yesterday.
+    filtered_rates = [rate for rate in rates if rate.valid_to > cutoff]
+
+    logger.info(
+        f"Filtered rates to include data since {cutoff.strftime('%Y-%m-%d %H:%M')}. "
+        f"Kept {len(filtered_rates)} out of {len(rates)} rates."
+    )
+
+    return filtered_rates
+
+
+# ----------------------------------------------------------------------------
+# Main Orchestration Method
+# ----------------------------------------------------------------------------
 
 
 def get_octopus_rates() -> RateData:
     """
-    Fetches rates and returns a RateData dataclass with current and historical prices.
-    Uses cached price data if available and less than 2 hours old.
+    Fetches rates, using a cache-then-API strategy,
+    and returns data for the last 48 hours.
+
+    This function follows these steps:
+    1.  Tries to load fresh data from a local cache.
+    2.  If the cache is valid, returns the data immediately.
+    3.  If the cache is stale or missing, it fetches new data from the Octopus API.
+    4.  It merges the new data with any existing (but stale) cached data.
+    5.  It filters the merged list to only include the most recent 48 hours of data.
+    6.  The result is saved to the cache and returned.
     """
-    from pathlib import Path
+    # 1. Check for valid, recent cache
+    cached_rates = _load_rates_from_cache()
+    if cached_rates:
+        cache_age = datetime.now(LOCAL_TZ) - datetime.fromtimestamp(
+            CACHE_FILE.stat().st_mtime, LOCAL_TZ
+        )
+        if cache_age < timedelta(hours=CACHE_EXPIRY_HOURS):
+            logger.info(
+                f"Using fresh cache data ({cache_age.total_seconds() / 60:.1f} mins old)."
+            )
+            final_rates = _filter_rates_to_window(cached_rates, hours=DATA_WINDOW_HOURS)
+            as_at_dt, current_rate = get_current_rate(final_rates)
+            return RateData(
+                latest=final_rates,
+                current=current_rate,
+                as_at=as_at_dt,
+                data_read_at=datetime.fromtimestamp(
+                    CACHE_FILE.stat().st_mtime, LOCAL_TZ
+                ),
+            )
 
-    # Try to get cached prices first
-    latest_prices = get_cached_prices()
-    if latest_prices is not None:
-        # Get cache file timestamp for data_read_at
-        cache_path = Path("latest_prices.json")
-        data_read_at = datetime.fromtimestamp(cache_path.stat().st_mtime, LOCAL_TZ)
-        as_at_dt, current_rate = get_current_rate(latest_prices)
+    # 2. Fetch new data from API if cache is stale or missing
+    new_rates = _fetch_new_rates_from_api()
+    if not new_rates:
+        logger.error("No new rates fetched. Returning empty data.")
         return RateData(
-            latest=latest_prices,
-            current=current_rate,
-            as_at=as_at_dt,
-            data_read_at=data_read_at,
+            latest=[],
+            current=None,
+            as_at=datetime.now(LOCAL_TZ),
+            data_read_at=datetime.now(LOCAL_TZ),
         )
 
-    # If no valid cache, fetch fresh data
-    logger.info("Cache miss or expired, fetching fresh data from Octopus API")
-    # 1. Setup API Details and Time Parameters
-    config = get_config()
-    api_key = config.OCTOPUS_API_KEY
-    product_code = config.OCTOPUS_PRODUCT_CODE
-    tariff_code = config.OCTOPUS_TARIFF_CODE
-    octopus_base_url = config.OCTOPUS_BASE_URL
+    # 3. Merge new rates with any existing (stale) cache
+    existing_rates = cached_rates or []
+    merged_rates = merge_price_data(existing_rates, new_rates)
 
-    # Calculate 'period_from' and 'period_to' (Start of today to day after tomorrow)
-    now_local = datetime.now(LOCAL_TZ)
-    start_of_today_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    # 4. Filter merged data to the desired 48-hour window
+    final_rates = _filter_rates_to_window(merged_rates, hours=DATA_WINDOW_HOURS)
 
-    # CORRECTED LOGIC for end_period_local:
-    day_after_tomorrow_date = now_local.date() + timedelta(days=2)
-    start_of_day_after_tomorrow_naive = datetime.combine(
-        day_after_tomorrow_date, time.min
-    )
-    end_period_local = LOCAL_TZ.localize(start_of_day_after_tomorrow_naive)
+    # 5. Save the final, clean data to cache
+    _save_rates_to_cache(final_rates)
 
-    # Convert to Zulu format required by the API
-    period_from = local_to_zulu_str(start_of_today_local)
-    period_to = local_to_zulu_str(end_period_local)
-
-    standard_elec_rates_url = (
-        f"{octopus_base_url}/{product_code}/electricity-tariffs/"
-        f"{tariff_code}/standard-unit-rates/"
-    )
-
-    params = {"period_from": period_from, "period_to": period_to, "page_size": 100}
-
-    # 2. Make API Request and Save Raw Data
-    response = requests.get(standard_elec_rates_url, auth=(api_key, ""), params=params)
-    response.raise_for_status()
-    data = response.json()
-
-    with open("current_prices_raw.json", "w") as f:
-        json.dump(data, f, indent=4)
-
-    # 3. Process Data
-    latest_prices: List[Rate] = []
-
-    for result in data["results"]:
-        valid_from_local = zulu_to_local(result["valid_from"])
-        valid_to_local = zulu_to_local(result["valid_to"])
-
-        price_item = Rate(
-            value_exc_vat=result["value_exc_vat"],
-            value_inc_vat=result["value_inc_vat"],
-            valid_from=valid_from_local,
-            valid_to=valid_to_local,
-        )
-        latest_prices.append(price_item)
-
-    latest_prices.sort(key=lambda r: r.valid_from)
-
-    # 4. Determine 'current' Price
-    as_at_dt, current_price = get_current_rate(latest_prices)
-
-    # 5. Try to load existing cached data for merging (ignore cache validity)
-    existing_cached_prices = None
-    try:
-        cache_path = "latest_prices.json"
-        from pathlib import Path
-
-        cache_file = Path(cache_path)
-        if cache_file.exists():
-            with open(cache_path, "r") as f:
-                cached_data = json.load(f)
-            existing_cached_prices = [
-                Rate(
-                    value_exc_vat=rate["value_exc_vat"],
-                    value_inc_vat=rate["value_inc_vat"],
-                    valid_from=json_str_to_datetime(rate["valid_from"]),
-                    valid_to=json_str_to_datetime(rate["valid_to"]),
-                )
-                for rate in cached_data
-            ]
-    except (FileNotFoundError, json.JSONDecodeError, KeyError, ValueError) as e:
-        logger.info(f"No existing cache to merge: {e}")
-
-    # Merge with existing cached data to maintain 48-hour window
-    if existing_cached_prices is not None:
-        # Merge existing data with new data
-        merged_prices = merge_price_data(existing_cached_prices, latest_prices)
-        # Update latest_prices to use merged data
-        latest_prices = merged_prices
-        # Re-sort to ensure proper ordering
-        latest_prices.sort(key=lambda r: r.valid_from)
-        # Recalculate current rate with merged data
-        as_at_dt, current_price = get_current_rate(latest_prices)
-
-    # 6. Save merged prices to cache and return RateData
-    with open("latest_prices.json", "w") as f:
-        json.dump(
-            [
-                {
-                    "value_exc_vat": rate.value_exc_vat,
-                    "value_inc_vat": rate.value_inc_vat,
-                    "valid_from": datetime_to_json_str(rate.valid_from),
-                    "valid_to": datetime_to_json_str(rate.valid_to),
-                }
-                for rate in latest_prices
-            ],
-            f,
-            indent=4,
-        )
-
-    # Get the cache file timestamp for data_read_at
-    from pathlib import Path
-
-    cache_path = Path("latest_prices.json")
-    data_read_at = datetime.fromtimestamp(cache_path.stat().st_mtime, LOCAL_TZ)
+    # 6. Prepare and return the RateData object
+    data_read_at = datetime.fromtimestamp(CACHE_FILE.stat().st_mtime, LOCAL_TZ)
+    as_at_dt, current_rate = get_current_rate(final_rates)
 
     return RateData(
-        latest=latest_prices,
-        current=current_price,
+        latest=final_rates,
+        current=current_rate,
         as_at=as_at_dt,
         data_read_at=data_read_at,
     )
