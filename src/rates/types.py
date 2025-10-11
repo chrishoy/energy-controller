@@ -3,7 +3,7 @@
 from datetime import datetime
 from dataclasses import dataclass, asdict
 import json
-from typing import List, Optional
+from typing import Any, List, Optional
 from json import JSONEncoder
 
 from src.utils.date_utils import datetime_to_json_str
@@ -66,7 +66,7 @@ def rate_data_to_json(price_data: RateData) -> str:
     return json.dumps(price_data, indent=4, cls=RateDataEncoder, ensure_ascii=False)
 
 
-def rate_data_to_object(rate_data: RateData):
+def rate_data_to_object(rate_data: RateData) -> dict[str, Any]:
     current_rate = rate_data.current
     data = {
         "as_at": datetime_to_json_str(rate_data.as_at),
