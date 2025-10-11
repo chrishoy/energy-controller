@@ -6,7 +6,7 @@ from typing import List, Optional
 from pathlib import Path
 
 from .config import get_config
-from .rate_data import Rate, RateData
+from .rates.types import Rate, RateData
 from .utils.date_utils import (
     LOCAL_TZ,
     zulu_to_local,

@@ -1,7 +1,8 @@
 from flask import Flask, render_template, jsonify
 from src.octopus_api import get_octopus_rates
-from src.optimiser import optimize_heating_schedule
 from src.config import get_config
+from src.optimiser import Optimiser
+from src.optimiser.types import OptimisationParams, OptimisationStrategy
 from src.utils.date_utils import datetime_to_json_str
 import os
 
@@ -65,9 +66,29 @@ def get_rates():
 def get_heating_schedule():
     """API endpoint to get the optimized heating schedule."""
     try:
+        # --- 1. Get prices from Octopus
         rate_data = get_octopus_rates()
-        optimised_heating_schedule = optimize_heating_schedule(rate_data.latest)
-        return jsonify(optimised_heating_schedule)
+
+        # --- 2. Define optimisation params
+        optimisation_params = OptimisationParams(
+            comfort_hours=[(7, 9), (16, 22)],
+            preheat_slots=2,
+            power_kw=3.5,
+        )
+
+        # --- 3. Use specific strategy to created an optimised heading schedule
+        optimiser = Optimiser()
+
+        # --- Simple Greedy or Advanced Predictive ---
+        strategy = OptimisationStrategy.ADVANCED_PREDICTIVE
+
+        optimisation_results = optimiser.run_optimisation(
+            data=rate_data.latest,
+            strategy=strategy,
+            optimisation_params=optimisation_params,
+        )
+
+        return jsonify(optimisation_results)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
