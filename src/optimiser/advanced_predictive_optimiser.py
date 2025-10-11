@@ -63,7 +63,8 @@ def optimize_heating_schedule(
         target_slot = min(uncovered_comfort_slots)
 
         # Define the window to look for the best time to preheat
-        # This window is from the start of the preheat period up to the target slot itself
+        # This window is from the start of the preheat period
+        # up to the target slot itself
         window_start = max(0, target_slot - preheat_slots)
         window_end = target_slot
 
@@ -80,7 +81,8 @@ def optimize_heating_schedule(
         if best_heating_slot != -1:
             on_indices.add(best_heating_slot)
 
-        # Recalculate which slots are now covered and remove them from the 'uncovered' set
+        # Recalculate which slots are now covered and
+        # remove them from the 'uncovered' set
         all_covered_slots = get_covered_slots(on_indices)
         uncovered_comfort_slots -= all_covered_slots
 
