@@ -6,6 +6,8 @@ import json
 from typing import List, Optional
 from json import JSONEncoder
 
+from src.utils.date_utils import datetime_to_json_str
+
 # --- Data Classes ---
 
 
@@ -62,3 +64,31 @@ def rate_data_to_json(price_data: RateData) -> str:
     """
     # Use the custom encoder and set ensure_ascii=False for proper characters
     return json.dumps(price_data, indent=4, cls=RateDataEncoder, ensure_ascii=False)
+
+
+def rate_data_to_object(rate_data: RateData):
+    current_rate = rate_data.current
+    data = {
+        "as_at": datetime_to_json_str(rate_data.as_at),
+        "data_read_at": datetime_to_json_str(rate_data.data_read_at),
+        "current": {
+            "value_exc_vat": (current_rate.value_exc_vat if current_rate else None),
+            "value_inc_vat": (current_rate.value_inc_vat if current_rate else None),
+            "valid_from": (
+                datetime_to_json_str(current_rate.valid_from) if current_rate else None
+            ),
+            "valid_to": (
+                datetime_to_json_str(current_rate.valid_to) if current_rate else None
+            ),
+        },
+        "latest": [
+            {
+                "value_exc_vat": rate.value_exc_vat,
+                "value_inc_vat": rate.value_inc_vat,
+                "valid_from": datetime_to_json_str(rate.valid_from),
+                "valid_to": datetime_to_json_str(rate.valid_to),
+            }
+            for rate in rate_data.latest
+        ],
+    }
+    return data

@@ -3,7 +3,8 @@ from src.octopus_api import get_octopus_rates
 from src.config import get_config
 from src.optimiser import Optimiser
 from src.optimiser.types import OptimisationParams, OptimisationStrategy
-from src.utils.date_utils import datetime_to_json_str
+from src.rates.types import rate_data_to_object
+
 import os
 
 
@@ -24,40 +25,8 @@ def get_rates():
     """API endpoint to get the latest rates."""
     try:
         rate_data = get_octopus_rates()
-        current_rate = rate_data.current
-        return jsonify(
-            {
-                "as_at": datetime_to_json_str(rate_data.as_at),
-                "data_read_at": datetime_to_json_str(rate_data.data_read_at),
-                "current": {
-                    "value_exc_vat": (
-                        current_rate.value_exc_vat if current_rate else None
-                    ),
-                    "value_inc_vat": (
-                        current_rate.value_inc_vat if current_rate else None
-                    ),
-                    "valid_from": (
-                        datetime_to_json_str(current_rate.valid_from)
-                        if current_rate
-                        else None
-                    ),
-                    "valid_to": (
-                        datetime_to_json_str(current_rate.valid_to)
-                        if current_rate
-                        else None
-                    ),
-                },
-                "latest": [
-                    {
-                        "value_exc_vat": rate.value_exc_vat,
-                        "value_inc_vat": rate.value_inc_vat,
-                        "valid_from": datetime_to_json_str(rate.valid_from),
-                        "valid_to": datetime_to_json_str(rate.valid_to),
-                    }
-                    for rate in rate_data.latest
-                ],
-            }
-        )
+        return jsonify(rate_data_to_object(rate_data))
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -89,6 +58,7 @@ def get_heating_schedule():
         )
 
         return jsonify(optimisation_results)
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
