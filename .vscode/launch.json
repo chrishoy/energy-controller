@@ -34,6 +34,33 @@
             },
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/.venv/Scripts/python.exe"
+        },
+        {
+            "name": "Vue Dev Server",
+            "type": "node",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/front-end",
+            "runtimeExecutable": "npm",
+            "runtimeArgs": [
+                "run",
+                "dev"
+            ],
+            "console": "integratedTerminal",
+            "internalConsoleOptions": "neverOpen",
+            "preLaunchTask": "npm: install - front-end"
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Full Stack (Dev)",
+            "configurations": [
+                "Web Server",
+                "Vue Dev Server"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "order": 1
+            }
         }
     ]
 }
